@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+set_and_check(YoloOrtDml_RUNTIME_DIR "${PACKAGE_PREFIX_DIR}/bin")
+set(YoloOrtDml_RUNTIME_DLLS
+    "${YoloOrtDml_RUNTIME_DIR}/YoloOrtDml.dll"
+    "${YoloOrtDml_RUNTIME_DIR}/onnxruntime.dll"
+    "${YoloOrtDml_RUNTIME_DIR}/onnxruntime_providers_shared.dll"
+    "${YoloOrtDml_RUNTIME_DIR}/DirectML.dll"
+)
+
+include("${CMAKE_CURRENT_LIST_DIR}/YoloOrtDmlTargets.cmake")
+
+check_required_components(YoloOrtDml)

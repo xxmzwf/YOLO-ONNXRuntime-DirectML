@@ -1,2 +1,0 @@
-Download third_party.zip from the Releases section, extract it, and place it here.
-从Release中下载 third_party.zip ，并且解压到这里

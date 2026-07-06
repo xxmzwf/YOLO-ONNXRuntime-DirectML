@@ -1,152 +1,213 @@
-# YOLO-ONNXRuntime-DirectML
+# YoloOrtDml
 
-**A high-speed YOLO inference library powered by ONNX Runtime and DirectML.**
+**High-speed YOLO object detection on Windows — ONNX Runtime + DirectML, zero OpenCV dependency.**
 
-Language: [简体中文](docs/Chinese.md)
+A lean C++ inference library tuned for minimum per-frame latency: a full detect cycle
+(preprocess → inference → postprocess) runs in **under 1 ms** with YOLOv6-N @ 320 on a laptop RTX 3060.
 
-`YoloOrtDml` packages YOLO inference into a C++ shared library. OpenCV and ONNX Runtime are linked as static dependencies, so downstream projects can use the exported CMake package directly and only copy the required runtime DLLs.
+English | [中文文档](docs/README-Chinese.md)
 
-> **Suggestion tip:** Convert your ONNX model to an FP16 ONNX model for faster preprocessing and inference.
-> You can write a Python script to perform the conversion.
+![Inference result](assets/result.png)
+
+*Detection and per-stage timing with `yolov6n_320_fp16_u8.onnx`.*
 
 ## Highlights
 
-- DirectML acceleration for fast YOLO inference on Windows.
-- OpenCV and ONNX Runtime static libraries are bundled into `YoloOrtDml`.
-- CMake package export with the imported target `YoloOrtDml::YoloOrtDml`.
-- Supports YOLOv5, YOLOv6, YOLOv8, YOLOv9, YOLOv10, YOLOv11, YOLOv12, YOLOv13, and YOLOv26.
+- **~1100 FPS end-to-end** (YOLOv6-N 320, RTX 3060 Laptop) — see [Performance](#performance)
+- **DirectML GPU inference**: runs on any DirectX 12 GPU (NVIDIA / AMD / Intel), no CUDA or vendor SDK required
+- **No OpenCV**: the library depends on ONNX Runtime only; preprocessing is hand-written SIMD (SSSE3 deinterleave, F16C fp16 conversion, fused resize + normalize + letterbox in one pass)
+- **Allocation-free hot path**: IoBinding pre-binding, preallocated input/output tensors, cached tensor objects — after the first frame, nothing is allocated or re-resolved
+- **Baked u8 models** ([tools/bake_preprocess.py](tools/bake_preprocess.py)): layout conversion, normalization and fp16 output cast are moved *into* the ONNX graph and run on the GPU; CPU preprocessing collapses to a row copy (~0.02 ms) and PCIe traffic drops to a quarter
+- **Automatic model adaptation**: input resolution (256 / 320 / 640 / ...), fp32 / fp16 / uint8 input, and the output layout are all detected from model metadata — no code changes when you swap models
+- High-priority D3D12 command queue, so inference stays responsive while other applications load the GPU
 
-## Benchmark
+## Supported models
 
-| Item | Configuration |
-| :-- | :-- |
-| GPU | RTX 3060 Laptop |
-| CPU | 12th Gen Intel Core i7 |
-| Model | YOLOv5n, input size 320, FP16 |
-| Image | 320 x 320 |
-| Backend | DirectML enabled |
+| Family | Output layout | Notes |
+|---|---|---|
+| YOLOv5 / v6 / v7 style | row-major `[1, N, 4+1+C]` (objectness) | |
+| YOLOv8 / v9 / v11 / v12 style | planar `[1, 4+C, N]` | |
+| YOLOv10 / v26 end-to-end | `[1, N, 6]` | NMS inside the model |
 
-**Measured result:** YOLOv6 can reach around **1 ms** inference latency, while the other supported models are around **1.5 ms**.
+- fp32 or fp16 weights; float32, float16 or baked uint8 input tensors
+- any static input resolution and 1- or 3-channel input, both read from the model
+- providing a label file makes layout detection exact for custom class counts; without one, a shape heuristic is used
 
-![YOLO inference result](assets/result.png)
+> Note: yolov10 / yolo26 **fp16** exports currently crash DirectML's graph fusion inside ONNX Runtime
+> (upstream issue) and fall back to slower execution — use their **fp32** exports on DirectML.
 
-## Dependencies
+## Performance
 
-| Dependency / Compiler | Version |
-| :-- | :-- |
-| OpenCV | 4.12.0 |
-| ONNX Runtime | 1.28.0 |
-| MSVC | 2022 |
+Measured with 320×320 BGR input (matching the model size), averages over 100 consecutive frames after warm-up.
+Hardware: Intel i7-12700H + NVIDIA GeForce RTX 3060 Laptop GPU, Windows 11, ONNX Runtime 1.28 (DirectML).
 
-## Model Support
+| Model | Preprocess | Inference | Postprocess | Total | FPS |
+|---|---|---|---|---|---|
+| `yolov5n_320_fp16_u8.onnx` | 0.022 ms | 1.34 ms | 0.013 ms | **1.38 ms** | ~725 |
+| `yolov6n_320_fp16_u8.onnx` | 0.019 ms | 0.86 ms | 0.013 ms | **0.89 ms** | ~1120 |
 
-| YOLO Version | Status |
-| :-- | :-- |
-| YOLOv5 | Supported |
-| YOLOv6 | Supported |
-| YOLOv8 | Supported |
-| YOLOv9 | Supported |
-| YOLOv10 | Supported |
-| YOLOv11 | Supported |
-| YOLOv12 | Supported |
-| YOLOv13 | Supported |
-| YOLOv26 | Supported |
+When the input image size differs from the model size, the SIMD resize path adds roughly 0.14–0.19 ms.
 
-## Build From Source
+## Requirements
 
-> **Prebuilt package:** If you do not want to build the library yourself, download `YoloOrtDml-Shared.zip` from [Releases](https://github.com/hnxxwf/YOLO-ONNXRuntime-DirectML/releases).
+- Windows 10 / 11 with a DirectX 12 capable GPU
+- **ONNX Runtime shared build with the DirectML execution provider** (tested with 1.28) — provides `onnxruntime.dll`, `onnxruntime_providers_shared.dll`, `DirectML.dll`
+- MSVC 2022 (C++17), CMake ≥ 3.16
+- **OpenCV is NOT required** — the library never touches it; the example below uses OpenCV only to load and display images
+- Python 3 with `pip install onnx onnxruntime` — only if you use the optional model tools
 
-This project is built with CMake and Ninja, using MSVC 2022 as the compiler.
+## Build & install
 
-OpenCV and ONNX Runtime are required as static libraries, not the official dynamic-library releases. Building these dependencies can be troublesome, especially ONNX Runtime as a static library, so prebuilt static dependencies are provided in `third_party.zip` in [Releases](https://github.com/hnxxwf/YOLO-ONNXRuntime-DirectML/releases).
-
-Extract `third_party.zip` into the `third_party` folder in the project root before building:
-
-![third_party folder layout](assets/2.png)
-
-> **Runtime note:** After build and install, OpenCV and ONNX Runtime are already linked into `YoloOrtDml`. You do not need to import them again in your own project or copy their runtime DLLs manually. `DirectML.dll` still needs to be copied to the executable directory because it cannot be embedded into `YoloOrtDml`.
-
-Build commands:
-
-```cmd
-git clone https://github.com/hnxxwf/YOLO-ONNXRuntime-DirectML.git
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-cmake --install build
-```
-
-After installation, the packaged `YoloOrtDml` shared library will be generated in the `install` folder in the project root.
-
-## Use In A CMake Project
+1. Open [CMakeLists.txt](CMakeLists.txt) and point `ONNXRUNTIME_PATH` at your own ONNX Runtime DirectML package:
 
 ```cmake
-set(YoloOrtDml_Root_Path "Set the root path of the YoloOrtDml shared library folder, for example D:/CodeLibraries/YoloOrtDml-Shared")
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-list(APPEND CMAKE_PREFIX_PATH ${YoloOrtDml_Root_Path})
-
-find_package(YoloOrtDml CONFIG REQUIRED)
-
-set(YOLO_APP_TARGET you_executable_target_name)
-
-target_link_libraries(${YOLO_APP_TARGET}
-    PRIVATE
-        YoloOrtDml::YoloOrtDml
-)
-
-# Automatically copy YoloOrtDml.dll and DirectML.dll to the executable directory.
-if(YoloOrtDml_RUNTIME_DLLS)
-    add_custom_command(TARGET ${YOLO_APP_TARGET} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${YoloOrtDml_RUNTIME_DLLS}
-            $<TARGET_FILE_DIR:${YOLO_APP_TARGET}>
-        VERBATIM
-    )
-endif()
+set(ONNXRUNTIME_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared")   # <-- change this
 ```
 
-## API Example
+The package is expected to contain `include/onnxruntime`, `lib/onnxruntime.lib`, `lib/cmake/onnxruntime` and `bin/*.dll`.
+
+2. Configure, build and install:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+cmake --install build --prefix D:/libs/YoloOrtDml
+```
+
+The install tree ships everything a consumer needs: `YoloOrtDml.dll` + import library, the single public header `YoloOrtDml.h`, the ONNX Runtime / DirectML runtime DLLs, and a CMake package config.
+
+## Using the library in your project
+
+```cmake
+list(APPEND CMAKE_PREFIX_PATH "D:/libs/YoloOrtDml")    # your install prefix
+find_package(YoloOrtDml CONFIG REQUIRED)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE YoloOrtDml::YoloOrtDml)
+
+# copy every runtime DLL next to your executable
+add_custom_command(TARGET my_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${YoloOrtDml_RUNTIME_DLLS}
+        "$<TARGET_FILE_DIR:my_app>"
+    VERBATIM
+)
+```
+
+`YoloOrtDml_RUNTIME_DLLS` is provided by the package config and lists `YoloOrtDml.dll`, `onnxruntime.dll`, `onnxruntime_providers_shared.dll` and `DirectML.dll`.
+
+## Model tools
+
+Two optional Python scripts in [tools/](tools) squeeze extra speed out of any YOLO export (`pip install onnx onnxruntime` first).
+
+### bake_preprocess.py — move preprocessing onto the GPU
+
+```bash
+python tools/bake_preprocess.py yolov6n_320.onnx        # -> yolov6n_320_u8.onnx
+```
+
+Rewrites the model input to `uint8[1,H,W,3]` (NHWC, RGB) and prepends `Transpose → Cast → Mul(1/255)`
+nodes, so layout conversion and normalization run inside the model on the GPU. When the network
+weights are fp16, fp32 outputs are additionally cast to fp16 (lossless — halves the readback).
+The input resolution is read from the model, so 256 / 320 / 640 exports all work.
+
+The engine detects baked models automatically (uint8 input) — no API change. Effect: CPU
+preprocessing becomes a plain row copy and upload bytes drop 4× versus a float32 tensor.
+
+### convert_fp16.py — convert fp32 models to fp16
+
+```bash
+python tools/convert_fp16.py yolov6n_320_fp32.onnx      # -> yolov6n_320_fp32_fp16.onnx
+```
+
+Converts weights and I/O to fp16 (halving upload *and* readback); operators that are unsafe in
+fp16 (NMS / TopK / Resize, ...) are kept in fp32 automatically. Models whose weights are already
+fp16 are detected and skipped. Works on plain and on already-baked u8 models.
+
+**Recommended pipeline** for a fresh fp32 export:
+
+```bash
+python tools/convert_fp16.py  model_fp32.onnx           # fp16 weights + fp16 I/O
+python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 input, GPU preprocessing
+```
+
+## API
+
+The public surface is a single header, [YoloOrtDml.h](YoloOrtDml/include/YoloOrtDml.h) — no ONNX Runtime types leak through it.
+
+| Method | Description |
+|---|---|
+| `bool setModel(std::string modelPath)` | Load an ONNX model and create the DirectML session (CPU fallback). Input size / type / layout are auto-detected. |
+| `bool setLabel(std::string labelPath)` | Load class names (one per line). Makes output-layout detection exact; `classId` indexes this list. |
+| `void setDevice(int device)` | GPU adapter index (DXGI enumeration order), default 0. Reloads the session if a model is already set. |
+| `void setConfidenceThreshold(float)` | Score threshold for keeping detections. |
+| `void setNMSThreshold(float)` | IoU threshold for non-maximum suppression. |
+| `void setImage(ImageView&)` | Store a **non-owning** view of the image. Pixel data must stay valid until `preprocess()` returns. |
+| `void preprocess()` | Image → input tensor (SIMD resize / convert, or row copy for baked models). |
+| `void infer()` | One `Run` on the GPU via pre-bound IoBinding. |
+| `void postprocess()` | Decode + NMS. |
+| `std::vector<DetectResultBox> resultBoxes()` | Boxes in original-image pixel coordinates: `x, y, width, height, score, classId`. |
+
+The three pipeline stages are split on purpose so you can time each one.
+`ImageView` accepts `BGR8`, `RGB8`, `BGRA8`, `RGBA8` and `GRAY8` data with an arbitrary row stride.
+
+## API example
+
+OpenCV appears here **only** to load and display the image — the library itself has no OpenCV dependency.
 
 ```cpp
-#include <YoloOrtDml.h>
-#include <opencv2/opencv.hpp>
-#include <model.h>
-
 #include <iostream>
-#include <string>
-#include <vector>
+#include <opencv2/opencv.hpp>
+
+#include "YoloOrtDml.h"
 
 int main()
 {
+    // -------------------- configuration --------------------
     YoloOrtDml detector;
-    std::string modelPath = "input model path";
-    detector.setModel(modelPath);
-    detector.setConfThreshold(0.4f);
-    detector.setNmsThreshold(0.45f);
-
-    cv::Mat img = cv::imread("input image path");
-    if (img.empty())
-    {
-        std::cout << "failed to read image" << std::endl;
-        return -1;
+    detector.setDevice(0);                    // GPU adapter index
+    detector.setConfidenceThreshold(0.3f);
+    detector.setNMSThreshold(0.45f);
+    if (!detector.setLabel("label.txt")) {
+        std::cerr << "failed to load labels" << std::endl;
+        return 1;
+    }
+    if (!detector.setModel("yolov6n_320_fp16_u8.onnx")) {
+        std::cerr << "failed to load model" << std::endl;
+        return 1;
     }
 
-    detector.preprocess(img);
+    // -------------------- wrap a cv::Mat (no pixel copy) --------------------
+    cv::Mat image = cv::imread("test.jpg");   // 8-bit BGR
+    ImageView view;
+    view.data = image.data;                   // pixel pointer
+    view.width = image.cols;
+    view.height = image.rows;
+    view.channels = image.channels();
+    view.stride = image.step;                 // bytes per row (handles padded strides)
+    view.format = ImageFormat::BGR8;          // BGR8 / RGB8 / BGRA8 / RGBA8 / GRAY8
+
+    // -------------------- inference --------------------
+    detector.setImage(view);                  // pixels must stay valid until preprocess() returns
+    detector.preprocess();
     detector.infer();
+    detector.postprocess();
 
-    /*
-     * std::vector<DetectResultBox> contains the inference result boxes.
-     * You can check model.h to see the structure fields, including the
-     * top-left coordinates, width, height, confidence, class id, and class name.
-     */
-    std::vector<DetectResultBox> resultBoxes = detector.postprocess();
-
-    // You do not have to use draw(). You can also draw boxes from resultBoxes yourself.
-    cv::Mat resultMat = detector.draw().clone();
-    cv::imshow("YOLO Result", resultMat);
+    // -------------------- results --------------------
+    for (const DetectResultBox& box : detector.resultBoxes()) {
+        std::cout << "class " << box.classId << " score " << box.score
+                  << " box [" << box.x << ", " << box.y << ", "
+                  << box.width << ", " << box.height << "]" << std::endl;
+        cv::rectangle(image,
+                      cv::Rect(cvRound(box.x), cvRound(box.y),
+                               cvRound(box.width), cvRound(box.height)),
+                      cv::Scalar(0, 255, 0), 2);
+    }
+    cv::imshow("YoloOrtDml", image);
     cv::waitKey(0);
-    cv::destroyAllWindows();
-
     return 0;
 }
 ```
+
+Deployment: place `YoloOrtDml.dll`, `onnxruntime.dll`, `onnxruntime_providers_shared.dll` and
+`DirectML.dll` next to your executable (the CMake snippet above does this automatically).

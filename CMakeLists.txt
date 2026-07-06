@@ -1,33 +1,86 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.16)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(YoloOrtDml VERSION 1.0.0 LANGUAGES CXX)
 
-project(YOLO_ONNXRuntime_DirectML
-    VERSION 1.0.0
-    LANGUAGES CXX
+set(ONNXRUNTIME_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared")
+
+list(APPEND CMAKE_PREFIX_PATH ${ONNXRUNTIME_PATH})
+find_package(onnxruntime REQUIRED)
+include(CMakePackageConfigHelpers)
+
+file(GLOB YOLOORTDML_SRC_FILES "YoloOrtDml/src/*.cpp")
+file(GLOB YOLOORTDML_HEADER_FILES "YoloOrtDml/include/*.h")
+
+add_library(YoloOrtDml SHARED)
+add_library(YoloOrtDml::YoloOrtDml ALIAS YoloOrtDml)
+target_sources(YoloOrtDml
+    PRIVATE
+        ${YOLOORTDML_SRC_FILES}
+        ${YOLOORTDML_HEADER_FILES}
+)
+target_include_directories(YoloOrtDml
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/YoloOrtDml/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_compile_definitions(YoloOrtDml
+    PRIVATE
+        YOLOORTDML_BUILD_SHARED
+    INTERFACE
+        YOLOORTDML_USE_SHARED
+)
+target_link_libraries(YoloOrtDml
+    PRIVATE
+        onnxruntime::onnxruntime
+)
+if(WIN32)
+    target_link_libraries(YoloOrtDml
+        PRIVATE
+            d3d12
+            dxgi
+            "${ONNXRUNTIME_PATH}/lib/DirectML.lib"
+    )
+endif()
+
+set(YOLOORTDML_RUNTIME_DLLS
+    "${ONNXRUNTIME_PATH}/bin/onnxruntime.dll"
+    "${ONNXRUNTIME_PATH}/bin/onnxruntime_providers_shared.dll"
+    "${ONNXRUNTIME_PATH}/bin/DirectML.dll"
+)
+add_custom_command(TARGET YoloOrtDml POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${YOLOORTDML_RUNTIME_DLLS}
+        "$<TARGET_FILE_DIR:YoloOrtDml>"
+    VERBATIM
 )
 
-set(CMAKE_BUILD_TYPE "Release")
+install(TARGETS YoloOrtDml
+    EXPORT YoloOrtDmlTargets
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+)
+install(FILES YoloOrtDml/include/YoloOrtDml.h DESTINATION include)
+install(FILES ${YOLOORTDML_RUNTIME_DLLS} DESTINATION bin)
+install(EXPORT YoloOrtDmlTargets
+    FILE YoloOrtDmlTargets.cmake
+    NAMESPACE YoloOrtDml::
+    DESTINATION lib/cmake/YoloOrtDml
+)
 
-#set the OpenCV static library path
-set(OpenCV_Static_Root_Path
-    "${CMAKE_CURRENT_LIST_DIR}/third_party/OpenCV-Static-4.14.0"
-    CACHE PATH "OpenCV static install prefix"
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/YoloOrtDmlConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/YoloOrtDmlConfig.cmake"
+    INSTALL_DESTINATION lib/cmake/YoloOrtDml
 )
-#set the ONNXRuntime static library path
-set(ONNXRuntime_Static_Root_Path
-    "${CMAKE_CURRENT_LIST_DIR}/third_party/ONNXRuntime-Static-1.28.0"
-    CACHE PATH "ONNX Runtime static install prefix"
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/YoloOrtDmlConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
 )
-#set the YoloOrtDml SDK install path!!!!!!!!!!!!!!!!!
-set(YoloOrtDml_Shared_Install_Path
-    "${CMAKE_CURRENT_LIST_DIR}/install"
-    CACHE PATH "YoloOrtDml SDK install prefix"
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/YoloOrtDmlConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/YoloOrtDmlConfigVersion.cmake"
+    DESTINATION lib/cmake/YoloOrtDml
 )
-set(YoloOrtDml_DirectML_DLL
-    "${ONNXRuntime_Static_Root_Path}/bin/DirectML.dll"
-    CACHE FILEPATH "DirectML runtime DLL"
-)
-set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
-set(CMAKE_INSTALL_PREFIX "${YoloOrtDml_Shared_Install_Path}" CACHE PATH "Install prefix" FORCE)
-
-add_subdirectory(src)
-add_subdirectory(example)
