@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 project(YoloOrtDml VERSION 1.0.0 LANGUAGES CXX)
 
 set(ONNXRUNTIME_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared")
+set(DIRECTML_IMPORT_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared/lib/DirectML.lib")
 
 list(APPEND CMAKE_PREFIX_PATH ${ONNXRUNTIME_PATH})
 find_package(onnxruntime REQUIRED)
@@ -33,26 +34,9 @@ target_compile_definitions(YoloOrtDml
 target_link_libraries(YoloOrtDml
     PRIVATE
         onnxruntime::onnxruntime
-)
-if(WIN32)
-    target_link_libraries(YoloOrtDml
-        PRIVATE
-            d3d12
-            dxgi
-            "${ONNXRUNTIME_PATH}/lib/DirectML.lib"
-    )
-endif()
-
-set(YOLOORTDML_RUNTIME_DLLS
-    "${ONNXRUNTIME_PATH}/bin/onnxruntime.dll"
-    "${ONNXRUNTIME_PATH}/bin/onnxruntime_providers_shared.dll"
-    "${ONNXRUNTIME_PATH}/bin/DirectML.dll"
-)
-add_custom_command(TARGET YoloOrtDml POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${YOLOORTDML_RUNTIME_DLLS}
-        "$<TARGET_FILE_DIR:YoloOrtDml>"
-    VERBATIM
+        d3d12
+        dxgi
+        ${DIRECTML_IMPORT_PATH}
 )
 
 install(TARGETS YoloOrtDml
@@ -62,7 +46,6 @@ install(TARGETS YoloOrtDml
     ARCHIVE DESTINATION lib
 )
 install(FILES YoloOrtDml/include/YoloOrtDml.h DESTINATION include)
-install(FILES ${YOLOORTDML_RUNTIME_DLLS} DESTINATION bin)
 install(EXPORT YoloOrtDmlTargets
     FILE YoloOrtDmlTargets.cmake
     NAMESPACE YoloOrtDml::
