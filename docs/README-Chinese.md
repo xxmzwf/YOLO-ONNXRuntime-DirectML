@@ -31,7 +31,7 @@
 
 - fp32 或 fp16 权重；float32、float16 或烧制后的 uint8 输入张量
 - 任意静态输入分辨率、1 或 3 通道输入，均从模型中读取
-- 提供标签文件可对自定义类别数做精确布局判定；不提供时使用形状启发式
+- 输出布局和 `classId` 都根据模型输出形状自动解析，不需要标签文件
 
 > 注意：yolov10 / yolo26 的 **fp16** 导出目前会触发 ONNX Runtime 中 DirectML 图融合的缺陷
 >（上游问题）导致回退降速——在 DirectML 上请使用它们的 **fp32** 导出。
@@ -139,7 +139,6 @@ python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 输入、GPU 预�
 | 方法 | 说明 |
 |---|---|
 | `bool setModel(std::string modelPath)` | 加载 ONNX 模型并创建 DirectML 会话（失败回退 CPU）。输入尺寸/类型/布局自动识别。 |
-| `bool setLabel(std::string labelPath)` | 加载类别名（每行一个）。让输出布局判定变为精确匹配；`classId` 即此列表的下标。 |
 | `void setDevice(int device)` | GPU 适配器序号（DXGI 枚举顺序），默认 0。若模型已加载会自动重建会话。 |
 | `void setConfidenceThreshold(float)` | 置信度阈值。 |
 | `void setNMSThreshold(float)` | NMS 的 IoU 阈值。 |
@@ -169,10 +168,6 @@ int main()
     detector.setDevice(0);                    // GPU 适配器序号
     detector.setConfidenceThreshold(0.3f);
     detector.setNMSThreshold(0.45f);
-    if (!detector.setLabel("label.txt")) {
-        std::cerr << "标签加载失败" << std::endl;
-        return 1;
-    }
     if (!detector.setModel("yolov6n_320_fp16_u8.onnx")) {
         std::cerr << "模型加载失败" << std::endl;
         return 1;

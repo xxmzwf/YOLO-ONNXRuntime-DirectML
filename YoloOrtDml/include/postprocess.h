@@ -21,7 +21,6 @@ void postprocess(
     const PreprocessResult& preprocess,
     float confidenceThreshold,
     float nmsThreshold,
-    int classCount,
     PostprocessContext& context,
     std::vector<DetectResultBox>& results);
 

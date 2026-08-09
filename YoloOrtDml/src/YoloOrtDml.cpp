@@ -1,7 +1,5 @@
 #include "YoloOrtDml.h"
 
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <utility>
 
@@ -13,7 +11,6 @@ struct YoloOrtDml::Impl
 {
     InferEngine engine;
     std::string modelPath;
-    std::vector<std::string> labels;
     int device = 0;
     float confidenceThreshold = 0.4f;
     float nmsThreshold = 0.45f;
@@ -39,29 +36,6 @@ bool YoloOrtDml::setModel(std::string modelPath)
     impl->modelPath = std::move(modelPath);
     impl->outputs = nullptr;
     return impl->engine.loadModel(impl->modelPath, impl->device);
-}
-
-bool YoloOrtDml::setLabel(std::string labelPath)
-{
-    std::ifstream file(std::filesystem::u8path(labelPath));
-    if (!file.is_open()) {
-        return false;
-    }
-
-    impl->labels.clear();
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.rfind("\xEF\xBB\xBF", 0) == 0) {
-            line.erase(0, 3);
-        }
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        if (!line.empty()) {
-            impl->labels.push_back(line);
-        }
-    }
-    return !impl->labels.empty();
 }
 
 void YoloOrtDml::setDevice(int device)
@@ -124,7 +98,6 @@ void YoloOrtDml::postprocess()
         impl->preprocessResult,
         impl->confidenceThreshold,
         impl->nmsThreshold,
-        static_cast<int>(impl->labels.size()),
         impl->postprocessContext,
         impl->results);
 }

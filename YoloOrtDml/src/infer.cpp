@@ -282,7 +282,11 @@ struct InferEngine::Impl
             elementBytes = 4;
             type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
         }
-        if (data != inputData || input.shape != inputShape) {
+        // DirectML may retain the input resource behind an IoBinding.  The
+        // preprocessing step rewrites the same CPU buffer for every frame,
+        // so static-output runs must recreate and bind the current input on
+        // every call instead of only binding when the address or shape changes.
+        if (staticOutputs || data != inputData || input.shape != inputShape) {
             const size_t bytes = elementCount(input.shape.data(), input.shape.size()) * elementBytes;
             inputValue = Ort::Value::CreateTensor(
                 memoryInfo,

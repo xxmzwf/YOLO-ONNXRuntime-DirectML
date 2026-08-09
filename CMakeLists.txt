@@ -3,8 +3,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 project(YoloOrtDml VERSION 1.0.0 LANGUAGES CXX)
 
-set(ONNXRUNTIME_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared")
-set(DIRECTML_IMPORT_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared/lib/DirectML.lib")
+set(ONNXRUNTIME_PATH "D:/Code/Libs/ONNXRuntime-Shared")
+set(DIRECTML_IMPORT_PATH "D:/Code/Libs/ONNXRuntime-Shared/lib/DirectML.lib")
 
 list(APPEND CMAKE_PREFIX_PATH ${ONNXRUNTIME_PATH})
 find_package(onnxruntime REQUIRED)
@@ -46,6 +46,12 @@ install(TARGETS YoloOrtDml
     ARCHIVE DESTINATION lib
 )
 install(FILES YoloOrtDml/include/YoloOrtDml.h DESTINATION include)
+install(FILES
+    "${ONNXRUNTIME_PATH}/bin/onnxruntime.dll"
+    "${ONNXRUNTIME_PATH}/bin/onnxruntime_providers_shared.dll"
+    "${ONNXRUNTIME_PATH}/bin/DirectML.dll"
+    DESTINATION bin
+)
 install(EXPORT YoloOrtDmlTargets
     FILE YoloOrtDmlTargets.cmake
     NAMESPACE YoloOrtDml::

@@ -31,7 +31,7 @@ English | [中文文档](docs/README-Chinese.md)
 
 - fp32 or fp16 weights; float32, float16 or baked uint8 input tensors
 - any static input resolution and 1- or 3-channel input, both read from the model
-- providing a label file makes layout detection exact for custom class counts; without one, a shape heuristic is used
+- output layout and class IDs are inferred from the model output shape; no label file is required
 
 > Note: yolov10 / yolo26 **fp16** exports currently crash DirectML's graph fusion inside ONNX Runtime
 > (upstream issue) and fall back to slower execution — use their **fp32** exports on DirectML.
@@ -138,7 +138,6 @@ The public surface is a single header, [YoloOrtDml.h](YoloOrtDml/include/YoloOrt
 | Method | Description |
 |---|---|
 | `bool setModel(std::string modelPath)` | Load an ONNX model and create the DirectML session (CPU fallback). Input size / type / layout are auto-detected. |
-| `bool setLabel(std::string labelPath)` | Load class names (one per line). Makes output-layout detection exact; `classId` indexes this list. |
 | `void setDevice(int device)` | GPU adapter index (DXGI enumeration order), default 0. Reloads the session if a model is already set. |
 | `void setConfidenceThreshold(float)` | Score threshold for keeping detections. |
 | `void setNMSThreshold(float)` | IoU threshold for non-maximum suppression. |
@@ -168,10 +167,6 @@ int main()
     detector.setDevice(0);                    // GPU adapter index
     detector.setConfidenceThreshold(0.3f);
     detector.setNMSThreshold(0.45f);
-    if (!detector.setLabel("label.txt")) {
-        std::cerr << "failed to load labels" << std::endl;
-        return 1;
-    }
     if (!detector.setModel("yolov6n_320_fp16_u8.onnx")) {
         std::cerr << "failed to load model" << std::endl;
         return 1;

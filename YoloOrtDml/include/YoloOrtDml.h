@@ -51,7 +51,6 @@ public:
     ~YoloOrtDml();
 
     bool setModel(std::string modelPath);
-    bool setLabel(std::string labelPath);
     void setDevice(int device);
     void setConfidenceThreshold(float threshold);
     void setNMSThreshold(float threshold);

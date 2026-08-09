@@ -385,7 +385,6 @@ void postprocess(
     const PreprocessResult& preprocess,
     float confidenceThreshold,
     float nmsThreshold,
-    int classCount,
     PostprocessContext& context,
     std::vector<DetectResultBox>& results)
 {
@@ -407,21 +406,13 @@ void postprocess(
         return;
     }
 
-    bool rowMajor;
-    if (classCount > 0 && (cols == classCount + 4 || cols == classCount + 5)) {
-        rowMajor = true;
-    } else if (classCount > 0 && (rows == classCount + 4 || rows == classCount + 5)) {
-        rowMajor = false;
-    } else {
-        rowMajor = rows > cols;
-    }
+    const bool rowMajor = rows > cols;
     const size_t features = static_cast<size_t>(rowMajor ? cols : rows);
     if (features <= 4) {
         return;
     }
-    // without labels assume the v5 COCO layout for row-major outputs, v8+ (no objectness) otherwise
-    const bool objectness = classCount > 0 ? features == static_cast<size_t>(classCount) + 5
-                                           : (rowMajor && features == 85);
+    // Supported YOLO layouts use objectness in row-major outputs and omit it in planar outputs.
+    const bool objectness = rowMajor;
     const int classes = static_cast<int>(features - (objectness ? 5 : 4));
 
     if (rowMajor) {
