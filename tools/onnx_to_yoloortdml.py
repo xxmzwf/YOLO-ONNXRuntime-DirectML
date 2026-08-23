@@ -1,19 +1,44 @@
-"""Bake input preprocessing into a YOLO ONNX model.
+"""Convert a YOLO ONNX model for YoloOrtDml.
 
-Rewrites the model input from float/float16 NCHW to uint8 NHWC (RGB order) and
-prepends Cast -> Transpose -> Mul(1/255) nodes, so cast, layout conversion and
-normalization run on the GPU. The spatial size is read from the model, so any
-input resolution (256/320/640/...) works. Resizing to the model size stays on
-the CPU side (see YoloOrtDml preprocess).
+The conversion is performed entirely in memory:
+1. Convert float32 weights and computation to float16.
+2. Rewrite the input from float NCHW to uint8 NHWC (RGB order) and bake
+   Transpose -> Cast -> Mul(1/255) preprocessing into the graph.
 
-Usage: python bake_preprocess.py model1.onnx [model2.onnx ...]
-Output: <model>_u8.onnx next to each input file.
+Resizing to the model input size remains on the CPU side. The input model must
+have one static NCHW input whose channel count is 1 or 3.
+
+Usage: python onnx_to_yoloortdml.py model1.onnx [model2.onnx ...]
+Output: <model>_fp16_u8.onnx next to each input file.
 """
 import sys
+import warnings
+from pathlib import Path
 
 import numpy as np
 import onnx
 from onnx import TensorProto, helper, numpy_helper
+
+warnings.filterwarnings("ignore", category=UserWarning)
+from onnxruntime.transformers import float16  # noqa: E402
+
+
+def topologicalSort(graph):
+    """The fp16 converter appends boundary Cast nodes out of order; re-sort."""
+    available = {i.name for i in graph.input} | {t.name for t in graph.initializer}
+    pending = list(graph.node)
+    ordered = []
+    while pending:
+        ready = [n for n in pending if all(not name or name in available for name in n.input)]
+        if not ready:
+            raise RuntimeError("graph contains a cycle or references a missing tensor")
+        for node in ready:
+            ordered.append(node)
+            available.update(node.output)
+        readyIds = {id(n) for n in ready}
+        pending = [n for n in pending if id(n) not in readyIds]
+    del graph.node[:]
+    graph.node.extend(ordered)
 
 
 def pickUnusedName(graph, candidates):
@@ -29,8 +54,19 @@ def pickUnusedName(graph, candidates):
     raise RuntimeError("no unused tensor name available")
 
 
-def bake(path):
-    model = onnx.load(path)
+def convertToFp16(model, path):
+    floatCount = sum(1 for t in model.graph.initializer if t.data_type == TensorProto.FLOAT)
+    halfCount = sum(1 for t in model.graph.initializer if t.data_type == TensorProto.FLOAT16)
+    if halfCount > floatCount:
+        print(f"{path}: weights are already fp16 ({halfCount} fp16 vs {floatCount} fp32 initializers)")
+        return model, 0
+
+    converted = float16.convert_float_to_float16(model, keep_io_types=False)
+    topologicalSort(converted.graph)
+    return converted, floatCount
+
+
+def bakePreprocess(model, path):
     graph = model.graph
     if len(graph.input) != 1:
         raise RuntimeError(f"{path}: expected exactly one graph input")
@@ -56,7 +92,7 @@ def bake(path):
     nchwOut = pickUnusedName(graph, ["bake_nchw"])
     castOut = pickUnusedName(graph, ["bake_cast"])
 
-    # transpose while still uint8 so the permute moves 4x fewer bytes
+    # Transpose while still uint8 so the permute moves 4x fewer bytes.
     nodes = [
         helper.make_node("Transpose", [inputName], [nchwOut], name="bake_Transpose", perm=[0, 3, 1, 2]),
         helper.make_node("Cast", [nchwOut], [castOut], name="bake_Cast", to=elemType),
@@ -68,8 +104,8 @@ def bake(path):
     del graph.input[:]
     graph.input.append(helper.make_tensor_value_info(inputName, TensorProto.UINT8, [1, height, width, channels]))
 
-    # fp16-weight networks produce values already on the fp16 grid, so casting fp32
-    # outputs to fp16 halves the GPU->CPU readback without changing any result
+    # FP16-weight networks produce values already on the FP16 grid. Casting FP32
+    # outputs to FP16 halves GPU-to-CPU readback without changing the result.
     halfInits = sum(1 for t in graph.initializer if t.data_type == TensorProto.FLOAT16)
     floatInits = sum(1 for t in graph.initializer if t.data_type == TensorProto.FLOAT)
     castOutputs = 0
@@ -84,12 +120,24 @@ def bake(path):
             output.type.tensor_type.elem_type = TensorProto.FLOAT16
             castOutputs += 1
 
+    return height, width, channels, castOutputs
+
+
+def convert(path):
+    model = onnx.load(path)
+    model, convertedCount = convertToFp16(model, path)
+    height, width, channels, castOutputs = bakePreprocess(model, path)
+    topologicalSort(model.graph)
     onnx.checker.check_model(model)
-    outPath = path[:-5] + "_u8.onnx" if path.endswith(".onnx") else path + "_u8.onnx"
+
+    inputPath = Path(path)
+    outputStem = inputPath.stem[:-5] if inputPath.stem.endswith("_fp16") else inputPath.stem
+    outPath = inputPath.with_name(outputStem + "_fp16_u8.onnx")
     onnx.save(model, outPath)
-    networkType = "fp16" if elemType == TensorProto.FLOAT16 else "fp32"
+
     print(f"{path} -> {outPath}")
-    print(f"  input: uint8[1,{height},{width},{channels}] NHWC RGB, network: {networkType}"
+    print(f"  converted {convertedCount} fp32 initializers to fp16")
+    print(f"  input: uint8[1,{height},{width},{channels}] NHWC RGB, network: fp16"
           + (f", {castOutputs} output(s) cast to fp16" if castOutputs else ""))
 
 
@@ -98,4 +146,4 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     for modelPath in sys.argv[1:]:
-        bake(modelPath)
+        convert(modelPath)
