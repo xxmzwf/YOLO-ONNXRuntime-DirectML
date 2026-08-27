@@ -6,12 +6,12 @@
 
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
-#define YOLOORTDML_SSE 1
+#define YOLOORTCML_SSE 1
 #if defined(_MSC_VER) || defined(__SSSE3__)
-#define YOLOORTDML_SSSE3 1
+#define YOLOORTCML_SSSE3 1
 #endif
 #if defined(_MSC_VER) || defined(__F16C__)
-#define YOLOORTDML_F16C 1
+#define YOLOORTCML_F16C 1
 #endif
 #endif
 
@@ -117,7 +117,7 @@ void vresizeStore(const float* row0, const float* row1, float weight, int width,
 {
     constexpr float normalize = 1.0f / 255.0f;
     int x = 0;
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
     const __m128 w = _mm_set1_ps(weight);
     const __m128 scale = _mm_set1_ps(normalize);
     for (; x + 4 <= width; x += 4) {
@@ -131,7 +131,7 @@ void vresizeStore(const float* row0, const float* row1, float weight, int width,
     }
 }
 
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
 void storeU8AsFloat(__m128i bytes, __m128 scale, float* dst)
 {
     const __m128i zero = _mm_setzero_si128();
@@ -148,7 +148,7 @@ void convertRowRgb(const uint8_t* src, const PixelLayout& layout, int width, flo
 {
     constexpr float normalize = 1.0f / 255.0f;
     int x = 0;
-#ifdef YOLOORTDML_SSSE3
+#ifdef YOLOORTCML_SSSE3
     if (layout.step == 3) {
         // deinterleave 16 pixels of 3-byte data into per-byte streams, then scale to [0, 1]
         const __m128i m00 = _mm_setr_epi8(0, 3, 6, 9, 12, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
@@ -206,7 +206,7 @@ void convertRowRgbU8(const uint8_t* src, const PixelLayout& layout, int width, u
         return;
     }
     int x = 0;
-#ifdef YOLOORTDML_SSSE3
+#ifdef YOLOORTCML_SSSE3
     if (layout.step == 3) {
         // BGR -> RGB, 5 pixels per iteration; lane 15 is rewritten by the next store or the tail
         const __m128i swap = _mm_setr_epi8(2, 1, 0, 5, 4, 3, 8, 7, 6, 11, 10, 9, 14, 13, 12, -1);
@@ -245,7 +245,7 @@ void hresizeRgbInterleaved(const uint8_t* src, const PixelLayout& layout, const 
     const int* offset1 = context.xOffset1.data();
     const float* weights = context.xWeight.data();
     int x = 0;
-#ifdef YOLOORTDML_SSSE3
+#ifdef YOLOORTCML_SSSE3
     if (layout.step == 3 || layout.step == 4) {
         const int simdEnd = layout.step == 3 ? context.xSafe : width;
         const __m128i zero = _mm_setzero_si128();
@@ -281,7 +281,7 @@ void hresizeRgbInterleaved(const uint8_t* src, const PixelLayout& layout, const 
 void lerpRowToU8(const float* row0, const float* row1, float weight, int count, uint8_t* dst)
 {
     int i = 0;
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
     const __m128 w = _mm_set1_ps(weight);
     const __m128 half = _mm_set1_ps(0.5f);
     for (; i + 16 <= count; i += 16) {
@@ -303,7 +303,7 @@ void lerpRowToU8(const float* row0, const float* row1, float weight, int count, 
 void floatToHalf(const float* src, uint16_t* dst, size_t count)
 {
     size_t i = 0;
-#ifdef YOLOORTDML_F16C
+#ifdef YOLOORTCML_F16C
     for (; i + 8 <= count; i += 8) {
         _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i),
                          _mm256_cvtps_ph(_mm256_loadu_ps(src + i), _MM_FROUND_TO_NEAREST_INT));

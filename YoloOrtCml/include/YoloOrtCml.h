@@ -1,20 +1,20 @@
-#ifndef YOLOORTDML_H
-#define YOLOORTDML_H
+#ifndef YOLOORTCML_H
+#define YOLOORTCML_H
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
 #if defined(_WIN32)
-#  if defined(YOLOORTDML_BUILD_SHARED)
-#    define YOLOORTDML_API __declspec(dllexport)
-#  elif defined(YOLOORTDML_USE_SHARED)
-#    define YOLOORTDML_API __declspec(dllimport)
+#  if defined(YOLOORTCML_BUILD_SHARED)
+#    define YOLOORTCML_API __declspec(dllexport)
+#  elif defined(YOLOORTCML_USE_SHARED)
+#    define YOLOORTCML_API __declspec(dllimport)
 #  else
-#    define YOLOORTDML_API
+#    define YOLOORTCML_API
 #  endif
 #else
-#  define YOLOORTDML_API __attribute__((visibility("default")))
+#  define YOLOORTCML_API __attribute__((visibility("default")))
 #endif
 
 struct DetectResultBox
@@ -44,11 +44,11 @@ struct ImageView
     size_t stride = 0;
     ImageFormat format = ImageFormat::BGR8;
 };
-class YOLOORTDML_API YoloOrtDml
+class YOLOORTCML_API YoloOrtCml
 {
 public:
-    YoloOrtDml();
-    ~YoloOrtDml();
+    YoloOrtCml();
+    ~YoloOrtCml();
 
     bool setModel(std::string modelPath);
     void setDevice(int device);
@@ -66,4 +66,4 @@ private:
 };
 
 
-#endif // YOLOORTDML_H
+#endif // YOLOORTCML_H

@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+set_and_check(YoloOrtCml_RUNTIME_DIR "${PACKAGE_PREFIX_DIR}/lib")
+set(YoloOrtCml_RUNTIME_LIBS
+    "${YoloOrtCml_RUNTIME_DIR}/libYoloOrtCml.dylib"
+    "${YoloOrtCml_RUNTIME_DIR}/libonnxruntime.1.dylib"
+)
+
+if(NOT TARGET onnxruntime::onnxruntime)
+    add_library(onnxruntime::onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime::onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${YoloOrtCml_RUNTIME_DIR}/libonnxruntime.1.dylib"
+        IMPORTED_SONAME "@rpath/libonnxruntime.1.dylib"
+    )
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/YoloOrtCmlTargets.cmake")
+
+check_required_components(YoloOrtCml)

@@ -1,4 +1,4 @@
-#include "YoloOrtDml.h"
+#include "YoloOrtCml.h"
 
 #include <iostream>
 #include <utility>
@@ -7,7 +7,7 @@
 #include "postprocess.h"
 #include "preprocess.h"
 
-struct YoloOrtDml::Impl
+struct YoloOrtCml::Impl
 {
     InferEngine engine;
     std::string modelPath;
@@ -24,21 +24,21 @@ struct YoloOrtDml::Impl
     std::vector<DetectResultBox> results;
 };
 
-YoloOrtDml::YoloOrtDml()
+YoloOrtCml::YoloOrtCml()
     : impl(std::make_unique<Impl>())
 {
 }
 
-YoloOrtDml::~YoloOrtDml() = default;
+YoloOrtCml::~YoloOrtCml() = default;
 
-bool YoloOrtDml::setModel(std::string modelPath)
+bool YoloOrtCml::setModel(std::string modelPath)
 {
     impl->modelPath = std::move(modelPath);
     impl->outputs = nullptr;
     return impl->engine.loadModel(impl->modelPath, impl->device);
 }
 
-void YoloOrtDml::setDevice(int device)
+void YoloOrtCml::setDevice(int device)
 {
     if (device == impl->device) {
         return;
@@ -50,23 +50,23 @@ void YoloOrtDml::setDevice(int device)
     }
 }
 
-void YoloOrtDml::setConfidenceThreshold(float threshold)
+void YoloOrtCml::setConfidenceThreshold(float threshold)
 {
     impl->confidenceThreshold = threshold;
 }
 
-void YoloOrtDml::setNMSThreshold(float threshold)
+void YoloOrtCml::setNMSThreshold(float threshold)
 {
     impl->nmsThreshold = threshold;
 }
 
-void YoloOrtDml::setImage(ImageView& image)
+void YoloOrtCml::setImage(ImageView& image)
 {
     impl->image = image;
     impl->outputs = nullptr;
 }
 
-void YoloOrtDml::preprocess()
+void YoloOrtCml::preprocess()
 {
     if (!impl->engine.ready() || impl->image.data == nullptr || impl->image.width <= 0 || impl->image.height <= 0) {
         return;
@@ -74,7 +74,7 @@ void YoloOrtDml::preprocess()
     impl->preprocessResult = ::preprocess(impl->engine.inputInfo(), impl->image, impl->preprocessContext, impl->inputTensor);
 }
 
-void YoloOrtDml::infer()
+void YoloOrtCml::infer()
 {
     impl->outputs = nullptr;
     if (!impl->engine.ready() || (impl->inputTensor.floatData.empty() && impl->inputTensor.byteData.empty())) {
@@ -83,11 +83,11 @@ void YoloOrtDml::infer()
     try {
         impl->outputs = &impl->engine.run(impl->inputTensor);
     } catch (const std::exception& exception) {
-        std::cerr << "[YoloOrtDml] inference failed: " << exception.what() << std::endl;
+        std::cerr << "[YoloOrtCml] inference failed: " << exception.what() << std::endl;
     }
 }
 
-void YoloOrtDml::postprocess()
+void YoloOrtCml::postprocess()
 {
     impl->results.clear();
     if (impl->outputs == nullptr) {
@@ -102,7 +102,7 @@ void YoloOrtDml::postprocess()
         impl->results);
 }
 
-std::vector<DetectResultBox> YoloOrtDml::resultBoxes()
+std::vector<DetectResultBox> YoloOrtCml::resultBoxes()
 {
     return impl->results;
 }

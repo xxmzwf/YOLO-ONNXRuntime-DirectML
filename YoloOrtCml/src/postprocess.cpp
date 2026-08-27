@@ -6,7 +6,7 @@
 
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
-#define YOLOORTDML_SSE 1
+#define YOLOORTCML_SSE 1
 #endif
 
 namespace
@@ -44,7 +44,7 @@ float maxScoreFloat(const float* scores, int count)
 {
     int i = 0;
     float best = scores[0];
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
     if (count >= 8) {
         __m128 vbest = _mm_loadu_ps(scores);
         for (i = 4; i + 4 <= count; i += 4) {
@@ -74,7 +74,7 @@ uint16_t maxScoreHalf(const uint16_t* scores, int count)
 {
     int i = 0;
     uint16_t best = scores[0];
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
     // non-negative half bit patterns order like their values, also under signed 16-bit compare
     if (count >= 16) {
         __m128i vbest = _mm_loadu_si128(reinterpret_cast<const __m128i*>(scores));
@@ -162,7 +162,7 @@ void planarMaxFloat(const float* classData, int classes, size_t count, std::vect
     for (int c = 1; c < classes; ++c) {
         const float* scores = classData + static_cast<size_t>(c) * count;
         size_t i = 0;
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
         for (; i + 4 <= count; i += 4) {
             _mm_storeu_ps(dst + i, _mm_max_ps(_mm_loadu_ps(dst + i), _mm_loadu_ps(scores + i)));
         }
@@ -180,7 +180,7 @@ void planarMaxHalf(const uint16_t* classData, int classes, size_t count, std::ve
     for (int c = 1; c < classes; ++c) {
         const uint16_t* scores = classData + static_cast<size_t>(c) * count;
         size_t i = 0;
-#ifdef YOLOORTDML_SSE
+#ifdef YOLOORTCML_SSE
         // scores are non-negative halves (< 0x8000), so signed 16-bit max matches float order
         for (; i + 8 <= count; i += 8) {
             const __m128i bestBits = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dst + i));

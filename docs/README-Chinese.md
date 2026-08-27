@@ -1,6 +1,6 @@
-# YoloOrtDml
+# YoloOrtCml
 
-**Windows 平台高速 YOLO 目标检测 —— ONNX Runtime + DirectML，零 OpenCV 依赖。**
+**macOS 平台高速 YOLO 目标检测 —— ONNX Runtime + CoreML，零 OpenCV 依赖。**
 
 一个以"最低单帧延迟"为目标打磨的精简 C++ 推理库：YOLOv6-N @ 320 在笔记本 RTX 3060 上，
 完整检测流程（预处理 → 推理 → 后处理）**不到 1 毫秒**。
@@ -14,12 +14,12 @@
 ## 亮点
 
 - **端到端约 1100 FPS**（YOLOv6-N 320，RTX 3060 Laptop）—— 见[性能](#性能)
-- **DirectML GPU 推理**：任何支持 DirectX 12 的 GPU 都能跑（NVIDIA / AMD / Intel），不需要 CUDA 或任何厂商 SDK
+- **CoreML 推理**：使用 Apple CoreML 执行提供器，不支持的模型或图分段自动回退 CPU
 - **不依赖 OpenCV**：本库只依赖 ONNX Runtime；预处理为手写 SIMD（SSSE3 通道解交织、F16C 半精度转换、缩放+归一化+letterbox 单遍融合）
 - **热路径零分配**：IoBinding 预绑定、输入输出张量预分配、张量对象缓存——首帧之后不再有任何分配或名字解析
 - **u8 烧制模型**（[tools/bake_preprocess.py](../tools/bake_preprocess.py)）：布局转换、归一化和 fp16 输出转换被移入 ONNX 图内由 GPU 执行；CPU 预处理退化为一次行拷贝（约 0.02 ms），PCIe 传输量降为 1/4
 - **模型自动适配**：输入分辨率（256 / 320 / 640 / ...）、fp32 / fp16 / uint8 输入、输出布局全部从模型元数据自动识别——换模型不需要改任何代码
-- 自建高优先级 D3D12 命令队列，GPU 被其他程序占用时推理仍能优先执行
+- 默认启用 CoreML MLProgram 模式，适配现代 Apple 芯片模型
 
 ## 支持的模型
 
@@ -33,70 +33,65 @@
 - 任意静态输入分辨率、1 或 3 通道输入，均从模型中读取
 - 输出布局和 `classId` 都根据模型输出形状自动解析，不需要标签文件
 
-> 注意：yolov10 / yolo26 的 **fp16** 导出目前会触发 ONNX Runtime 中 DirectML 图融合的缺陷
->（上游问题）导致回退降速——在 DirectML 上请使用它们的 **fp32** 导出。
+> CoreML 的支持情况取决于导出模型中的算子和形状。不支持的图分段会由
+> ONNX Runtime CPU 执行提供器处理。
 
 ## 性能
 
-测试条件：320×320 BGR 输入（与模型尺寸一致），预热后连续 100 帧取平均。
-硬件：Intel i7-12700H + NVIDIA GeForce RTX 3060 Laptop GPU，Windows 11，ONNX Runtime 1.28（DirectML）。
-
-| 模型 | 预处理 | 推理 | 后处理 | 总计 | FPS |
-|---|---|---|---|---|---|
-| `yolov5n_320_fp16_u8.onnx` | 0.022 ms | 1.34 ms | 0.013 ms | **1.38 ms** | ~725 |
-| `yolov6n_320_fp16_u8.onnx` | 0.019 ms | 0.86 ms | 0.013 ms | **0.89 ms** | ~1120 |
+请在目标 Apple 设备上测试 CoreML 性能；实际速度取决于 macOS 版本、Apple 芯片代际、
+模型格式以及交给 CoreML 执行的算子比例。
 
 当输入图片尺寸与模型尺寸不一致时，SIMD 缩放路径约增加 0.14–0.19 ms。
 
 ## 环境依赖
 
-- Windows 10 / 11，支持 DirectX 12 的 GPU
-- **带 DirectML 执行提供器的 ONNX Runtime 动态库**（1.28 测试通过）—— 提供 `onnxruntime.dll`、`onnxruntime_providers_shared.dll`、`DirectML.dll`
-- MSVC 2022（C++17），CMake ≥ 3.16
+- 支持 CoreML 的 macOS Apple 设备
+- **带 CoreML 执行提供器的 ONNX Runtime 动态库**——提供 `libonnxruntime.dylib` 和 `coreml_provider_factory.h`
+- Apple Clang（C++17）、CMake ≥ 3.16、Ninja
 - **不需要 OpenCV** —— 本库完全不使用它；下面示例中的 OpenCV 仅用于读图和显示
 - Python 3 并 `pip install onnx onnxruntime` —— 仅在使用可选的模型工具时需要
 
 ## 编译与安装
 
-1. 打开 [CMakeLists.txt](../CMakeLists.txt)，把 `ONNXRUNTIME_PATH` 改成你电脑上 ONNX Runtime DirectML 包的实际路径：
+1. 打开 [CMakeLists.txt](../CMakeLists.txt)，把 `ONNXRUNTIME_PATH` 改成你电脑上 ONNX Runtime CoreML 包的实际路径：
 
 ```cmake
-set(ONNXRUNTIME_PATH "D:/CodeLibraries/ONNXRuntime-1.28.0-Shared")   # <-- 改成你的路径
+set(ONNXRUNTIME_PATH "/Users/wufeng/Code/Libs/ONNXRuntime-Shared")
 ```
 
-该包应包含 `include/onnxruntime`、`lib/onnxruntime.lib`、`lib/cmake/onnxruntime` 和 `bin/*.dll`。
+该包应包含 `include/onnxruntime`、`lib/libonnxruntime*.dylib` 和 `lib/cmake/onnxruntime`。
 
 2. 配置、编译、安装：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-cmake --install build --prefix D:/libs/YoloOrtDml
+cmake --install build --prefix /Users/wufeng/Code/Libs/YoloOrtCml-Shared
 ```
 
-安装目录包含使用方需要的全部内容：`YoloOrtDml.dll` 与导入库、唯一的公开头文件 `YoloOrtDml.h`、
-ONNX Runtime / DirectML 运行时 DLL，以及 CMake 包配置文件。
+安装目录包含 `libYoloOrtCml.dylib`、唯一的公开头文件 `YoloOrtCml.h`、
+ONNX Runtime 动态库，以及 CMake 包配置文件。
 
 ## 在你的项目中使用本库
 
 ```cmake
-list(APPEND CMAKE_PREFIX_PATH "D:/libs/YoloOrtDml")    # 你的安装路径
-find_package(YoloOrtDml CONFIG REQUIRED)
+list(APPEND CMAKE_PREFIX_PATH "/Users/wufeng/Code/Libs/YoloOrtCml-Shared")
+find_package(YoloOrtCml CONFIG REQUIRED)
 
 add_executable(my_app main.cpp)
-target_link_libraries(my_app PRIVATE YoloOrtDml::YoloOrtDml)
+target_link_libraries(my_app PRIVATE YoloOrtCml::YoloOrtCml)
 
-# 把所有运行时 DLL 拷贝到可执行文件旁边
+# 需要时把运行时 dylib 拷贝到可执行文件旁边
 add_custom_command(TARGET my_app POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${YoloOrtDml_RUNTIME_DLLS}
+        ${YoloOrtCml_RUNTIME_LIBS}
         "$<TARGET_FILE_DIR:my_app>"
     VERBATIM
 )
 ```
 
-`YoloOrtDml_RUNTIME_DLLS` 由包配置提供，包含 `YoloOrtDml.dll`、`onnxruntime.dll`、
-`onnxruntime_providers_shared.dll` 和 `DirectML.dll`。
+`YoloOrtCml_RUNTIME_LIBS` 由包配置提供，包含安装后的 `libYoloOrtCml.dylib` 和
+`libonnxruntime.1.dylib`。
 
 ## 模型工具
 
@@ -134,17 +129,17 @@ python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 输入、GPU 预�
 
 ## API
 
-对外只暴露一个头文件 [YoloOrtDml.h](../YoloOrtDml/include/YoloOrtDml.h)——不泄漏任何 ONNX Runtime 类型。
+对外只暴露一个头文件 [YoloOrtCml.h](../YoloOrtCml/include/YoloOrtCml.h)——不泄漏任何 ONNX Runtime 类型。
 
 | 方法 | 说明 |
 |---|---|
-| `bool setModel(std::string modelPath)` | 加载 ONNX 模型并创建 DirectML 会话（失败回退 CPU）。输入尺寸/类型/布局自动识别。 |
-| `void setDevice(int device)` | GPU 适配器序号（DXGI 枚举顺序），默认 0。若模型已加载会自动重建会话。 |
+| `bool setModel(std::string modelPath)` | 加载 ONNX 模型并创建 CoreML 会话（失败回退 CPU）。输入尺寸/类型/布局自动识别。 |
+| `void setDevice(int device)` | 为兼容旧 API 保留；CoreML 自动选择 Apple 设备。 |
 | `void setConfidenceThreshold(float)` | 置信度阈值。 |
 | `void setNMSThreshold(float)` | NMS 的 IoU 阈值。 |
 | `void setImage(ImageView&)` | 保存图像的**非拥有**视图。像素数据须保持有效直到 `preprocess()` 返回。 |
 | `void preprocess()` | 图像 → 输入张量（SIMD 缩放/转换；烧制模型则为行拷贝）。 |
-| `void infer()` | 通过预绑定的 IoBinding 在 GPU 上执行一次 `Run`。 |
+| `void infer()` | 通过预绑定的 IoBinding 经 CoreML/CPU 执行一次 `Run`。 |
 | `void postprocess()` | 解码 + NMS。 |
 | `std::vector<DetectResultBox> resultBoxes()` | 原图像素坐标系下的检测框：`x, y, width, height, score, classId`。 |
 
@@ -159,13 +154,13 @@ python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 输入、GPU 预�
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
-#include "YoloOrtDml.h"
+#include "YoloOrtCml.h"
 
 int main()
 {
     // -------------------- 初始化配置 --------------------
-    YoloOrtDml detector;
-    detector.setDevice(0);                    // GPU 适配器序号
+    YoloOrtCml detector;
+    detector.setDevice(0);                    // CoreML 自动选择设备，此调用仅为兼容旧 API
     detector.setConfidenceThreshold(0.3f);
     detector.setNMSThreshold(0.45f);
     if (!detector.setModel("yolov6n_320_fp16_u8.onnx")) {
@@ -199,11 +194,11 @@ int main()
                                cvRound(box.width), cvRound(box.height)),
                       cv::Scalar(0, 255, 0), 2);
     }
-    cv::imshow("YoloOrtDml", image);
+    cv::imshow("YoloOrtCml", image);
     cv::waitKey(0);
     return 0;
 }
 ```
 
-部署：把 `YoloOrtDml.dll`、`onnxruntime.dll`、`onnxruntime_providers_shared.dll`、
-`DirectML.dll` 放到你的可执行文件旁边（上面的 CMake 片段会自动完成）。
+部署：把 `libYoloOrtCml.dylib` 和 `libonnxruntime.1.dylib` 放到可执行文件运行路径可找到的
+位置（安装后的库使用 `@loader_path` 查找同目录下的 ONNX Runtime 动态库）。

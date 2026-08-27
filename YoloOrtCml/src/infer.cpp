@@ -1,9 +1,5 @@
 #include "infer.h"
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -11,35 +7,12 @@
 
 #include <onnxruntime_cxx_api.h>
 
-#ifdef _WIN32
-#include <Windows.h>
-#include <d3d12.h>
-#include <dxgi1_4.h>
-#include <DirectML.h>
-#include <wrl/client.h>
-#include <dml_provider_factory.h>
+#ifdef __APPLE__
+#include <coreml_provider_factory.h>
 #endif
 
 namespace
 {
-#ifdef _WIN32
-std::wstring widenPath(const std::string& path)
-{
-    if (path.empty()) {
-        return {};
-    }
-
-    const int length = MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), nullptr, 0);
-    if (length <= 0) {
-        return std::wstring(path.begin(), path.end());
-    }
-
-    std::wstring wide(static_cast<size_t>(length), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), wide.data(), length);
-    return wide;
-}
-#endif
-
 size_t elementCount(const int64_t* shape, size_t rank)
 {
     size_t count = 1;
@@ -54,47 +27,11 @@ bool isSupportedElementType(ONNXTensorElementDataType type)
     return type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16;
 }
 
-#ifdef _WIN32
-// a dedicated high-priority command queue keeps inference ahead of other desktop GPU work
-bool appendHighPriorityDml(Ort::SessionOptions& options, int device)
-{
-    using Microsoft::WRL::ComPtr;
-    ComPtr<IDXGIFactory4> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-        return false;
-    }
-    ComPtr<IDXGIAdapter1> adapter;
-    if (FAILED(factory->EnumAdapters1(static_cast<UINT>(device), &adapter))) {
-        return false;
-    }
-    ComPtr<ID3D12Device> d3dDevice;
-    if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&d3dDevice)))) {
-        return false;
-    }
-    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
-    ComPtr<ID3D12CommandQueue> queue;
-    if (FAILED(d3dDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)))) {
-        return false;
-    }
-    ComPtr<IDMLDevice> dmlDevice;
-    if (FAILED(DMLCreateDevice(d3dDevice.Get(), DML_CREATE_DEVICE_FLAG_NONE, IID_PPV_ARGS(&dmlDevice)))) {
-        return false;
-    }
-    OrtStatus* status = OrtSessionOptionsAppendExecutionProviderEx_DML(options, dmlDevice.Get(), queue.Get());
-    if (status != nullptr) {
-        Ort::GetApi().ReleaseStatus(status);
-        return false;
-    }
-    return true;
-}
-#endif
 }
 
 struct InferEngine::Impl
 {
-    Ort::Env env = Ort::Env(ORT_LOGGING_LEVEL_ERROR, "YoloOrtDml");
+    Ort::Env env = Ort::Env(ORT_LOGGING_LEVEL_ERROR, "YoloOrtCml");
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     Ort::Session session = Ort::Session(nullptr);
     Ort::RunOptions runOptions;
@@ -141,43 +78,29 @@ struct InferEngine::Impl
 
     void createSession(const std::string& modelPath, int device)
     {
-#ifdef _WIN32
-        const std::wstring widePath = widenPath(modelPath);
-        // the second attempt disables DML graph fusion: some fp16 YOLO exports crash the fusion pass
-        for (const bool disableGraphFusion : {false, true}) {
-            try {
-                Ort::SessionOptions options;
-                options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
-                options.SetIntraOpNumThreads(1);
-                options.SetInterOpNumThreads(1);
-                options.DisableMemPattern();
-                options.SetExecutionMode(ORT_SEQUENTIAL);
-                if (disableGraphFusion) {
-                    options.AddConfigEntry("ep.dml.disable_graph_fusion", "1");
-                }
-                if (!appendHighPriorityDml(options, device)) {
-                    Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(options, device));
-                }
-                session = Ort::Session(env, widePath.c_str(), options);
-                if (disableGraphFusion) {
-                    std::cerr << "[YoloOrtDml] DirectML is running without graph fusion for this model." << std::endl;
-                }
-                return;
-            } catch (const Ort::Exception& exception) {
-                std::cerr << "[YoloOrtDml] DirectML session failed: " << exception.what() << std::endl;
-            }
+        (void)device;
+#ifdef __APPLE__
+        try {
+            Ort::SessionOptions options;
+            options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
+            options.SetIntraOpNumThreads(1);
+            options.SetInterOpNumThreads(1);
+            options.DisableMemPattern();
+            options.SetExecutionMode(ORT_SEQUENTIAL);
+            const uint32_t coremlFlags = COREML_FLAG_ENABLE_ON_SUBGRAPH | COREML_FLAG_CREATE_MLPROGRAM;
+            Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CoreML(options, coremlFlags));
+            session = Ort::Session(env, modelPath.c_str(), options);
+            return;
+        } catch (const Ort::Exception& exception) {
+            std::cerr << "[YoloOrtCml] CoreML session failed: " << exception.what() << std::endl;
         }
-        std::cerr << "[YoloOrtDml] DirectML is unavailable for this model; using CPU." << std::endl;
+        std::cerr << "[YoloOrtCml] CoreML is unavailable for this model; using CPU." << std::endl;
 #endif
         Ort::SessionOptions options;
         options.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
         const unsigned int threads = std::thread::hardware_concurrency();
         options.SetIntraOpNumThreads(static_cast<int>(std::min(6u, threads == 0 ? 1u : threads)));
-#ifdef _WIN32
-        session = Ort::Session(env, widePath.c_str(), options);
-#else
         session = Ort::Session(env, modelPath.c_str(), options);
-#endif
     }
 
     void readModelInfo()
@@ -282,7 +205,7 @@ struct InferEngine::Impl
             elementBytes = 4;
             type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
         }
-        // DirectML may retain the input resource behind an IoBinding.  The
+        // CoreML may retain the input resource behind an IoBinding.  The
         // preprocessing step rewrites the same CPU buffer for every frame,
         // so static-output runs must recreate and bind the current input on
         // every call instead of only binding when the address or shape changes.
@@ -339,7 +262,7 @@ bool InferEngine::loadModel(const std::string& modelPath, int device)
         impl->sessionReady = true;
         return true;
     } catch (const std::exception& exception) {
-        std::cerr << "[YoloOrtDml] failed to load model: " << exception.what() << std::endl;
+        std::cerr << "[YoloOrtCml] failed to load model: " << exception.what() << std::endl;
         impl->reset();
         return false;
     }

@@ -1,4 +1,4 @@
-"""Convert a YOLO ONNX model for YoloOrtDml.
+"""Convert a YOLO ONNX model for YoloOrtCml.
 
 The conversion is performed entirely in memory:
 1. Convert float32 weights and computation to float16.
@@ -8,7 +8,7 @@ The conversion is performed entirely in memory:
 Resizing to the model input size remains on the CPU side. The input model must
 have one static NCHW input whose channel count is 1 or 3.
 
-Usage: python onnx_to_yoloortdml.py model1.onnx [model2.onnx ...]
+Usage: python onnx_to_yoloortcml.py model1.onnx [model2.onnx ...]
 Output: <model>_fp16_u8.onnx next to each input file.
 """
 import sys
