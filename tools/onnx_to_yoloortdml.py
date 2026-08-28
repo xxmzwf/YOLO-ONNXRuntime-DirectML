@@ -12,6 +12,7 @@ Usage: python onnx_to_yoloortdml.py model1.onnx [model2.onnx ...]
 Output: <model>_fp16_u8.onnx next to each input file.
 """
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from onnx import TensorProto, helper, numpy_helper
 
 warnings.filterwarnings("ignore", category=UserWarning)
 from onnxruntime.transformers import float16  # noqa: E402
+
+
+def log(message):
+    print(f"[onnx_to_yoloortdml] {message}", flush=True)
 
 
 def topologicalSort(graph):
@@ -58,7 +63,7 @@ def convertToFp16(model, path):
     floatCount = sum(1 for t in model.graph.initializer if t.data_type == TensorProto.FLOAT)
     halfCount = sum(1 for t in model.graph.initializer if t.data_type == TensorProto.FLOAT16)
     if halfCount > floatCount:
-        print(f"{path}: weights are already fp16 ({halfCount} fp16 vs {floatCount} fp32 initializers)")
+        log(f"{path}: weights are already fp16 ({halfCount} fp16 vs {floatCount} fp32 initializers)")
         return model, 0
 
     converted = float16.convert_float_to_float16(model, keep_io_types=False)
@@ -123,27 +128,45 @@ def bakePreprocess(model, path):
     return height, width, channels, castOutputs
 
 
-def convert(path):
+def convert(path, modelIndex=1, modelCount=1):
+    progress = f"[{modelIndex}/{modelCount}]"
+    startTime = time.perf_counter()
+
+    log(f"{progress} Loading model: {path}")
     model = onnx.load(path)
+    log(f"{progress} Converting weights and graph to fp16 (this may take a while)...")
     model, convertedCount = convertToFp16(model, path)
+    log(f"{progress} FP16 conversion complete ({convertedCount} initializer(s) converted)")
+
+    log(f"{progress} Baking uint8 NHWC preprocessing into the graph...")
     height, width, channels, castOutputs = bakePreprocess(model, path)
+    log(f"{progress} Preprocessing baked for input {height}x{width}x{channels}")
+
+    log(f"{progress} Re-sorting graph nodes...")
     topologicalSort(model.graph)
+
+    log(f"{progress} Checking ONNX model...")
     onnx.checker.check_model(model)
 
     inputPath = Path(path)
     outputStem = inputPath.stem[:-5] if inputPath.stem.endswith("_fp16") else inputPath.stem
     outPath = inputPath.with_name(outputStem + "_fp16_u8.onnx")
+
+    log(f"{progress} Saving converted model: {outPath}")
     onnx.save(model, outPath)
 
-    print(f"{path} -> {outPath}")
-    print(f"  converted {convertedCount} fp32 initializers to fp16")
-    print(f"  input: uint8[1,{height},{width},{channels}] NHWC RGB, network: fp16"
-          + (f", {castOutputs} output(s) cast to fp16" if castOutputs else ""))
+    log(f"{progress} Done: {path} -> {outPath}")
+    log(f"{progress} Input: uint8[1,{height},{width},{channels}] NHWC RGB, network: fp16"
+        + (f", {castOutputs} output(s) cast to fp16" if castOutputs else ""))
+    log(f"{progress} Elapsed time: {time.perf_counter() - startTime:.2f}s")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    for modelPath in sys.argv[1:]:
-        convert(modelPath)
+    modelPaths = sys.argv[1:]
+    modelCount = len(modelPaths)
+    log(f"Starting conversion for {modelCount} model(s)")
+    for modelIndex, modelPath in enumerate(modelPaths, start=1):
+        convert(modelPath, modelIndex, modelCount)
