@@ -17,7 +17,7 @@
 - **DirectML GPU 推理**：任何支持 DirectX 12 的 GPU 都能跑（NVIDIA / AMD / Intel），不需要 CUDA 或任何厂商 SDK
 - **不依赖 OpenCV**：本库只依赖 ONNX Runtime；预处理为手写 SIMD（SSSE3 通道解交织、F16C 半精度转换、缩放+归一化+letterbox 单遍融合）
 - **热路径零分配**：IoBinding 预绑定、输入输出张量预分配、张量对象缓存——首帧之后不再有任何分配或名字解析
-- **u8 烧制模型**（[tools/bake_preprocess.py](../tools/bake_preprocess.py)）：布局转换、归一化和 fp16 输出转换被移入 ONNX 图内由 GPU 执行；CPU 预处理退化为一次行拷贝（约 0.02 ms），PCIe 传输量降为 1/4
+- **u8 烧制模型**（[tools/onnx_to_yoloortdml.py](../tools/onnx_to_yoloortdml.py)）：布局转换、归一化和 fp16 输出转换被移入 ONNX 图内由 GPU 执行；CPU 预处理退化为一次行拷贝（约 0.02 ms），PCIe 传输量降为 1/4
 - **模型自动适配**：输入分辨率（256 / 320 / 640 / ...）、fp32 / fp16 / uint8 输入、输出布局全部从模型元数据自动识别——换模型不需要改任何代码
 - 自建高优先级 D3D12 命令队列，GPU 被其他程序占用时推理仍能优先执行
 
@@ -33,8 +33,8 @@
 - 任意静态输入分辨率、1 或 3 通道输入，均从模型中读取
 - 输出布局和 `classId` 都根据模型输出形状自动解析，不需要标签文件
 
-> 注意：yolov10 / yolo26 的 **fp16** 导出目前会触发 ONNX Runtime 中 DirectML 图融合的缺陷
->（上游问题）导致回退降速——在 DirectML 上请使用它们的 **fp32** 导出。
+> YOLOv10 / YOLO26 请使用当前转换工具重新生成模型。旧版转换可能在 TopK 后留下无用的
+> Cast 分支，导致 DirectML 图融合失败、推理降速。
 
 ## 性能
 
@@ -100,37 +100,21 @@ add_custom_command(TARGET my_app POST_BUILD
 
 ## 模型工具
 
-[tools/](../tools) 下的两个可选 Python 脚本能进一步榨出速度（先 `pip install onnx onnxruntime`）。
-
-### bake_preprocess.py —— 把预处理搬到 GPU
-
-```bash
-python tools/bake_preprocess.py yolov6n_320.onnx        # -> yolov6n_320_u8.onnx
-```
-
-把模型输入改写为 `uint8[1,H,W,3]`（NHWC、RGB），并在图前端插入 `Transpose → Cast → Mul(1/255)`
-节点，让布局转换与归一化在 GPU 上、模型内部完成。当网络权重为 fp16 时，还会把 fp32 输出
-转成 fp16（无损——回读量减半）。输入分辨率从模型中读取，256 / 320 / 640 的导出都能烧。
-
-引擎会自动识别烧制模型（uint8 输入），API 无需任何改动。效果：CPU 预处理变成纯行拷贝，
-上传字节量相比 float32 张量下降 4 倍。
-
-### convert_fp16.py —— 把 fp32 模型转成 fp16
+[tools/onnx_to_yoloortdml.py](../tools/onnx_to_yoloortdml.py) 一次完成 fp16 转换与预处理烧制
+（先 `pip install onnx onnxruntime`）。
 
 ```bash
-python tools/convert_fp16.py yolov6n_320_fp32.onnx      # -> yolov6n_320_fp32_fp16.onnx
+python tools/onnx_to_yoloortdml.py model.onnx          # -> model_fp16_u8.onnx
 ```
 
-把权重和输入输出都转成 fp16（上传与回读同时减半）；fp16 下不安全的算子（NMS / TopK /
-Resize 等）会自动保留 fp32。权重已是 fp16 的模型会被检测并跳过。普通模型和已烧制的
-u8 模型都能转。
+工具把 float32 权重和计算转为 float16，再把输入改为 `uint8[1,H,W,C]`（NHWC，3 通道时为 RGB），
+在图内加入 `Transpose → Cast → Mul(1/255)` 预处理。支持静态空间尺寸、1 或 3 通道；已是 fp16
+的权重会跳过转换，图像缩放仍由 CPU 完成。引擎会自动识别 uint8 输入，无需修改 API。
 
-对全新的 fp32 导出，**推荐处理链**：
-
-```bash
-python tools/convert_fp16.py  model_fp32.onnx           # fp16 权重 + fp16 输入输出
-python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 输入、GPU 预处理
-```
+ONNX Runtime 转换器黑名单中的算子（包括 TopK、NMS）仍保留 fp32。转换完成后，工具会删除
+不参与任何图输出计算的节点。YOLOv10 / YOLO26 可能只使用 TopK 的索引输出，而转换器还会给
+未使用的数值输出插入 Cast；这个无用分支可能导致 DirectML 图编译失败。删除它不改变模型
+输出，并能避免因此关闭图融合、降低推理速度。
 
 ## API
 

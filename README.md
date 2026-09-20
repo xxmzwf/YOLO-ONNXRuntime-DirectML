@@ -17,7 +17,7 @@ English | [中文文档](docs/README-Chinese.md)
 - **DirectML GPU inference**: runs on any DirectX 12 GPU (NVIDIA / AMD / Intel), no CUDA or vendor SDK required
 - **No OpenCV**: the library depends on ONNX Runtime only; preprocessing is hand-written SIMD (SSSE3 deinterleave, F16C fp16 conversion, fused resize + normalize + letterbox in one pass)
 - **Allocation-free hot path**: IoBinding pre-binding, preallocated input/output tensors, cached tensor objects — after the first frame, nothing is allocated or re-resolved
-- **Baked u8 models** ([tools/bake_preprocess.py](tools/bake_preprocess.py)): layout conversion, normalization and fp16 output cast are moved *into* the ONNX graph and run on the GPU; CPU preprocessing collapses to a row copy (~0.02 ms) and PCIe traffic drops to a quarter
+- **Baked u8 models** ([tools/onnx_to_yoloortdml.py](tools/onnx_to_yoloortdml.py)): layout conversion, normalization and fp16 output cast are moved *into* the ONNX graph and run on the GPU; CPU preprocessing collapses to a row copy (~0.02 ms) and PCIe traffic drops to a quarter
 - **Automatic model adaptation**: input resolution (256 / 320 / 640 / ...), fp32 / fp16 / uint8 input, and the output layout are all detected from model metadata — no code changes when you swap models
 - High-priority D3D12 command queue, so inference stays responsive while other applications load the GPU
 
@@ -33,8 +33,8 @@ English | [中文文档](docs/README-Chinese.md)
 - any static input resolution and 1- or 3-channel input, both read from the model
 - output layout and class IDs are inferred from the model output shape; no label file is required
 
-> Note: yolov10 / yolo26 **fp16** exports currently crash DirectML's graph fusion inside ONNX Runtime
-> (upstream issue) and fall back to slower execution — use their **fp32** exports on DirectML.
+> For YOLOv10 / YOLO26, regenerate models with the current conversion tool. Older conversions
+> can leave unused Cast branches after TopK, causing DirectML graph fusion to fail and inference to slow down.
 
 ## Performance
 
@@ -98,38 +98,23 @@ add_custom_command(TARGET my_app POST_BUILD
 
 ## Model tools
 
-Two optional Python scripts in [tools/](tools) squeeze extra speed out of any YOLO export (`pip install onnx onnxruntime` first).
-
-### bake_preprocess.py — move preprocessing onto the GPU
-
-```bash
-python tools/bake_preprocess.py yolov6n_320.onnx        # -> yolov6n_320_u8.onnx
-```
-
-Rewrites the model input to `uint8[1,H,W,3]` (NHWC, RGB) and prepends `Transpose → Cast → Mul(1/255)`
-nodes, so layout conversion and normalization run inside the model on the GPU. When the network
-weights are fp16, fp32 outputs are additionally cast to fp16 (lossless — halves the readback).
-The input resolution is read from the model, so 256 / 320 / 640 exports all work.
-
-The engine detects baked models automatically (uint8 input) — no API change. Effect: CPU
-preprocessing becomes a plain row copy and upload bytes drop 4× versus a float32 tensor.
-
-### convert_fp16.py — convert fp32 models to fp16
+[tools/onnx_to_yoloortdml.py](tools/onnx_to_yoloortdml.py) converts a model to fp16 and bakes
+preprocessing in one step (`pip install onnx onnxruntime` first).
 
 ```bash
-python tools/convert_fp16.py yolov6n_320_fp32.onnx      # -> yolov6n_320_fp32_fp16.onnx
+python tools/onnx_to_yoloortdml.py model.onnx          # -> model_fp16_u8.onnx
 ```
 
-Converts weights and I/O to fp16 (halving upload *and* readback); operators that are unsafe in
-fp16 (NMS / TopK / Resize, ...) are kept in fp32 automatically. Models whose weights are already
-fp16 are detected and skipped. Works on plain and on already-baked u8 models.
+The tool converts float32 weights and computation to float16, then rewrites the input to
+`uint8[1,H,W,C]` (NHWC, RGB for 3-channel models) with `Transpose → Cast → Mul(1/255)` preprocessing.
+It supports static spatial dimensions and 1 or 3 channels. Already-fp16 weights are detected and
+skipped; resizing remains on the CPU. The engine detects uint8 inputs automatically.
 
-**Recommended pipeline** for a fresh fp32 export:
-
-```bash
-python tools/convert_fp16.py  model_fp32.onnx           # fp16 weights + fp16 I/O
-python tools/bake_preprocess.py model_fp32_fp16.onnx    # + u8 input, GPU preprocessing
-```
+Operators in the ONNX Runtime converter's block list, including TopK and NMS, retain fp32.
+After conversion, nodes that do not contribute to any graph output are removed. In particular,
+YOLOv10 / YOLO26 may use only TopK's indices: the converter adds a Cast to the unused values
+output, and that dead branch can make DirectML graph compilation fail. Removing it preserves
+model outputs and allows graph fusion to remain enabled.
 
 ## API
 

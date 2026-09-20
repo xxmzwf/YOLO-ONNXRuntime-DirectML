@@ -46,6 +46,20 @@ def topologicalSort(graph):
     graph.node.extend(ordered)
 
 
+def removeUnusedNodes(graph):
+    """Prune a topologically sorted graph, including unused fp16 boundary casts."""
+    required = {output.name for output in graph.output}
+    retained = []
+    for node in reversed(graph.node):
+        if required.intersection(node.output):
+            retained.append(node)
+            required.update(node.input)
+    removed = len(graph.node) - len(retained)
+    del graph.node[:]
+    graph.node.extend(reversed(retained))
+    return removed
+
+
 def pickUnusedName(graph, candidates):
     used = set()
     for node in graph.node:
@@ -144,6 +158,10 @@ def convert(path, modelIndex=1, modelCount=1):
 
     log(f"{progress} Re-sorting graph nodes...")
     topologicalSort(model.graph)
+    # An unused TopK values output gets a dead Cast during fp16 conversion.
+    # Keeping that branch can make DirectML CompileGraph fail and disable fusion.
+    removedCount = removeUnusedNodes(model.graph)
+    log(f"{progress} Removed {removedCount} unused node(s)")
 
     log(f"{progress} Checking ONNX model...")
     onnx.checker.check_model(model)
