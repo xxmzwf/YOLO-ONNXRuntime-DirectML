@@ -119,6 +119,7 @@ model outputs and allows graph fusion to remain enabled.
 ## API
 
 The public surface is a single header, [YoloOrtDml.h](YoloOrtDml/include/YoloOrtDml.h) — no ONNX Runtime types leak through it.
+All public types live in the `YOD` namespace.
 
 | Method | Description |
 |---|---|
@@ -148,7 +149,7 @@ OpenCV appears here **only** to load and display the image — the library itsel
 int main()
 {
     // -------------------- configuration --------------------
-    YoloOrtDml detector;
+    YOD::YoloOrtDml detector;
     detector.setDevice(0);                    // GPU adapter index
     detector.setConfidenceThreshold(0.3f);
     detector.setNMSThreshold(0.45f);
@@ -159,13 +160,13 @@ int main()
 
     // -------------------- wrap a cv::Mat (no pixel copy) --------------------
     cv::Mat image = cv::imread("test.jpg");   // 8-bit BGR
-    ImageView view;
+    YOD::ImageView view;
     view.data = image.data;                   // pixel pointer
     view.width = image.cols;
     view.height = image.rows;
     view.channels = image.channels();
     view.stride = image.step;                 // bytes per row (handles padded strides)
-    view.format = ImageFormat::BGR8;          // BGR8 / RGB8 / BGRA8 / RGBA8 / GRAY8
+    view.format = YOD::ImageFormat::BGR8;     // BGR8 / RGB8 / BGRA8 / RGBA8 / GRAY8
 
     // -------------------- inference --------------------
     detector.setImage(view);                  // pixels must stay valid until preprocess() returns
@@ -174,7 +175,7 @@ int main()
     detector.postprocess();
 
     // -------------------- results --------------------
-    for (const DetectResultBox& box : detector.resultBoxes()) {
+    for (const YOD::DetectResultBox& box : detector.resultBoxes()) {
         std::cout << "class " << box.classId << " score " << box.score
                   << " box [" << box.x << ", " << box.y << ", "
                   << box.width << ", " << box.height << "]" << std::endl;

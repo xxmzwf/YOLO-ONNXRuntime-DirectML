@@ -119,6 +119,7 @@ ONNX Runtime 转换器黑名单中的算子（包括 TopK、NMS）仍保留 fp32
 ## API
 
 对外只暴露一个头文件 [YoloOrtDml.h](../YoloOrtDml/include/YoloOrtDml.h)——不泄漏任何 ONNX Runtime 类型。
+所有公开类型都位于 `YOD` 命名空间中。
 
 | 方法 | 说明 |
 |---|---|
@@ -148,7 +149,7 @@ ONNX Runtime 转换器黑名单中的算子（包括 TopK、NMS）仍保留 fp32
 int main()
 {
     // -------------------- 初始化配置 --------------------
-    YoloOrtDml detector;
+    YOD::YoloOrtDml detector;
     detector.setDevice(0);                    // GPU 适配器序号
     detector.setConfidenceThreshold(0.3f);
     detector.setNMSThreshold(0.45f);
@@ -159,13 +160,13 @@ int main()
 
     // -------------------- 封装 cv::Mat（不复制像素） --------------------
     cv::Mat image = cv::imread("test.jpg");   // 8 位 BGR
-    ImageView view;
+    YOD::ImageView view;
     view.data = image.data;                   // 像素数据指针
     view.width = image.cols;
     view.height = image.rows;
     view.channels = image.channels();
     view.stride = image.step;                 // 每行字节数（兼容带填充的 stride）
-    view.format = ImageFormat::BGR8;          // BGR8 / RGB8 / BGRA8 / RGBA8 / GRAY8
+    view.format = YOD::ImageFormat::BGR8;     // BGR8 / RGB8 / BGRA8 / RGBA8 / GRAY8
 
     // -------------------- 执行推理 --------------------
     detector.setImage(view);                  // 像素须保持有效直到 preprocess() 返回
@@ -174,7 +175,7 @@ int main()
     detector.postprocess();
 
     // -------------------- 结果处理 --------------------
-    for (const DetectResultBox& box : detector.resultBoxes()) {
+    for (const YOD::DetectResultBox& box : detector.resultBoxes()) {
         std::cout << "class " << box.classId << " score " << box.score
                   << " box [" << box.x << ", " << box.y << ", "
                   << box.width << ", " << box.height << "]" << std::endl;

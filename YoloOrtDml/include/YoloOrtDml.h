@@ -17,6 +17,8 @@
 #  define YOLOORTDML_API __attribute__((visibility("default")))
 #endif
 
+namespace YOD
+{
 struct DetectResultBox
 {
     float x;
@@ -64,6 +66,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 };
-
+} // namespace YOD
 
 #endif // YOLOORTDML_H

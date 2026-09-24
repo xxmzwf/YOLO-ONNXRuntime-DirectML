@@ -15,6 +15,8 @@
 #endif
 #endif
 
+namespace YOD
+{
 namespace
 {
 struct PixelLayout
@@ -477,3 +479,4 @@ PreprocessResult preprocess(
 
     return result;
 }
+} // namespace YOD

@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace YOD
+{
 struct ModelInputInfo
 {
     int width = 640;
@@ -76,5 +78,6 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 };
+} // namespace YOD
 
 #endif // INFER_H

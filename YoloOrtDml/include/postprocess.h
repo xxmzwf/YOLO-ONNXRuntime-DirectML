@@ -7,6 +7,8 @@
 #include "infer.h"
 #include "preprocess.h"
 
+namespace YOD
+{
 struct PostprocessContext
 {
     std::vector<DetectResultBox> candidates;
@@ -23,5 +25,6 @@ void postprocess(
     float nmsThreshold,
     PostprocessContext& context,
     std::vector<DetectResultBox>& results);
+} // namespace YOD
 
 #endif // POSTPROCESS_H

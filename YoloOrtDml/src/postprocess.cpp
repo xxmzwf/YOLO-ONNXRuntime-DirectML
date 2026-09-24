@@ -9,6 +9,8 @@
 #define YOLOORTDML_SSE 1
 #endif
 
+namespace YOD
+{
 namespace
 {
 float clampf(float value, float low, float high)
@@ -422,3 +424,4 @@ void postprocess(
     }
     applyNms(context, nmsThreshold, results);
 }
+} // namespace YOD

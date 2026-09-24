@@ -7,6 +7,8 @@
 #include "postprocess.h"
 #include "preprocess.h"
 
+namespace YOD
+{
 struct YoloOrtDml::Impl
 {
     InferEngine engine;
@@ -71,7 +73,7 @@ void YoloOrtDml::preprocess()
     if (!impl->engine.ready() || impl->image.data == nullptr || impl->image.width <= 0 || impl->image.height <= 0) {
         return;
     }
-    impl->preprocessResult = ::preprocess(impl->engine.inputInfo(), impl->image, impl->preprocessContext, impl->inputTensor);
+    impl->preprocessResult = YOD::preprocess(impl->engine.inputInfo(), impl->image, impl->preprocessContext, impl->inputTensor);
 }
 
 void YoloOrtDml::infer()
@@ -93,7 +95,7 @@ void YoloOrtDml::postprocess()
     if (impl->outputs == nullptr) {
         return;
     }
-    ::postprocess(
+    YOD::postprocess(
         *impl->outputs,
         impl->preprocessResult,
         impl->confidenceThreshold,
@@ -106,3 +108,4 @@ std::vector<DetectResultBox> YoloOrtDml::resultBoxes()
 {
     return impl->results;
 }
+} // namespace YOD

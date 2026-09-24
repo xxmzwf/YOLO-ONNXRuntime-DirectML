@@ -5,6 +5,8 @@
 #include "YoloOrtDml.h"
 #include "infer.h"
 
+namespace YOD
+{
 struct PreprocessResult
 {
     int imageWidth = 0;
@@ -29,5 +31,6 @@ PreprocessResult preprocess(
     const ImageView& image,
     PreprocessContext& context,
     InputTensor& tensor);
+} // namespace YOD
 
 #endif // PREPROCESS_H

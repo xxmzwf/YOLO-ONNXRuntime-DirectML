@@ -20,6 +20,8 @@
 #include <dml_provider_factory.h>
 #endif
 
+namespace YOD
+{
 namespace
 {
 #ifdef _WIN32
@@ -359,3 +361,4 @@ const std::vector<OutputView>& InferEngine::run(InputTensor& input)
 {
     return impl->run(input);
 }
+} // namespace YOD
